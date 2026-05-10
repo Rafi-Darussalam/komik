@@ -1,10 +1,23 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'config.dart';
 import 'start.dart';
+import 'notification_page.dart';
+import 'bookmarks_page.dart';
+
+// Helper untuk format rating agar konsisten (misal: 1.0, 4.5)
+String _formatRating(dynamic rating) {
+  if (rating == null) return '0.0';
+  double? val = double.tryParse(rating.toString());
+  if (val == null) return '0.0';
+  return val.toStringAsFixed(1);
+}
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -28,6 +41,10 @@ class _HomePageState extends State<HomePage> {
   List<dynamic> _apiComics = [];
   bool _isLoadingComics = true;
   Timer? _carouselTimer;
+  final ImagePicker _picker = ImagePicker();
+  bool _isUpdatingPhoto = false;
+  int _unreadNotificationsCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -46,10 +63,38 @@ class _HomePageState extends State<HomePage> {
     _searchController.addListener(() {
       setState(() {});
     });
-    
+
     _fetchComics();
     _fetchHistories();
     _fetchUser();
+    _fetchNotificationsCount();
+  }
+
+  Future<void> _fetchNotificationsCount() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      if (token == null) return;
+
+      var url = Uri.parse('${AppConfig.baseUrl}/notifications');
+      var response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        var jsonResponse = jsonDecode(response.body);
+        List<dynamic> notifs = jsonResponse['data'];
+        setState(() {
+          _unreadNotificationsCount = notifs.length;
+        });
+      }
+    } catch (e) {
+      print('Error fetching notifications count: $e');
+    }
   }
 
   Future<void> _fetchUser() async {
@@ -59,10 +104,13 @@ class _HomePageState extends State<HomePage> {
       if (token == null) return;
 
       var url = Uri.parse('${AppConfig.baseUrl}/user');
-      var response = await http.get(url, headers: {
-        'Authorization': 'Bearer $token',
-        'Accept': 'application/json',
-      });
+      var response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
 
       if (response.statusCode == 200) {
         var jsonResponse = jsonDecode(response.body);
@@ -82,10 +130,13 @@ class _HomePageState extends State<HomePage> {
       if (token == null) return;
 
       var url = Uri.parse('${AppConfig.baseUrl}/histories');
-      var response = await http.get(url, headers: {
-        'Authorization': 'Bearer $token',
-        'Accept': 'application/json',
-      });
+      var response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
 
       if (response.statusCode == 200) {
         var jsonResponse = jsonDecode(response.body);
@@ -124,6 +175,70 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _pickAndCropProfileImage() async {
+    final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      _updateProfilePhoto(pickedFile);
+    }
+  }
+
+  Future<void> _updateProfilePhoto(XFile imageFile) async {
+    setState(() => _isUpdatingPhoto = true);
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      if (token == null) return;
+
+      var url = Uri.parse('${AppConfig.baseUrl}/user/profile-photo');
+      var request = http.MultipartRequest('POST', url);
+      request.headers['Authorization'] = 'Bearer $token';
+      request.headers['Accept'] = 'application/json';
+
+      if (kIsWeb) {
+        final bytes = await imageFile.readAsBytes();
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'profile_photo',
+            bytes,
+            filename: 'profile_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          ),
+        );
+      } else {
+        request.files.add(
+          await http.MultipartFile.fromPath('profile_photo', imageFile.path),
+        );
+      }
+
+      var streamedResponse = await request.send();
+      var response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        var jsonResponse = jsonDecode(response.body);
+        setState(() {
+          _userData = jsonResponse['user'];
+          // Pastikan profile_photo_url ada di dalam _userData
+          if (_userData != null && jsonResponse['profile_photo_url'] != null) {
+            _userData!['profile_photo_url'] = jsonResponse['profile_photo_url'];
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Foto profil berhasil diperbarui')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gagal memperbarui foto profil')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      setState(() => _isUpdatingPhoto = false);
+    }
+  }
+
   @override
   void dispose() {
     _carouselTimer?.cancel();
@@ -150,10 +265,7 @@ class _HomePageState extends State<HomePage> {
             'Authorization': 'Bearer $token',
             'Accept': 'application/json',
           },
-          body: {
-            'comic_id': comicId.toString(),
-            'last_chapter_read': '1',
-          },
+          body: {'comic_id': comicId.toString(), 'last_chapter_read': '1'},
         );
         _fetchHistories(); // Refresh history list
       }
@@ -327,7 +439,7 @@ class _HomePageState extends State<HomePage> {
               ),
               border: Border.all(color: Colors.grey.shade300),
             ),
-            child: _isLoadingHistories 
+            child: _isLoadingHistories
                 ? const Center(child: CircularProgressIndicator())
                 : _apiHistories.isEmpty
                 ? const Center(
@@ -370,30 +482,113 @@ class _HomePageState extends State<HomePage> {
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
               border: Border.all(color: Colors.grey.shade300),
             ),
             child: Column(
               children: [
-                const ListTile(
-                  leading: Icon(Icons.person_outline),
-                  title: Text('Profil Saya'),
-                  trailing: Icon(Icons.chevron_right),
+                const SizedBox(height: 20),
+                Stack(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: const Color(0xFF9C27B0),
+                          width: 2,
+                        ),
+                      ),
+                        child: CircleAvatar(
+                          radius: 50,
+                          backgroundColor: Colors.grey.shade200,
+                          backgroundImage:
+                              _userData != null &&
+                                      _userData!['profile_photo_url'] != null &&
+                                      _userData!['profile_photo_url'].toString().isNotEmpty
+                                  ? NetworkImage(
+                                      '${_userData!['profile_photo_url']}?v=${DateTime.now().millisecondsSinceEpoch}',
+                                    )
+                                  : null,
+                          child: (_userData == null ||
+                                  _userData!['profile_photo_url'] == null ||
+                                  _userData!['profile_photo_url'].toString().isEmpty)
+                              ? Icon(
+                                  Icons.person_rounded,
+                                  size: 60,
+                                  color: Colors.grey.shade400,
+                                )
+                              : _isUpdatingPhoto
+                                  ? const CircularProgressIndicator()
+                                  : null,
+                        ),
+                    ),
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: GestureDetector(
+                        onTap: _isUpdatingPhoto
+                            ? null
+                            : _pickAndCropProfileImage,
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF9C27B0),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.camera_alt,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const ListTile(
-                  leading: Icon(Icons.notifications_none),
-                  title: Text('Notifikasi'),
-                  trailing: Icon(Icons.chevron_right),
+                const SizedBox(height: 15),
+                Text(
+                  _userData != null ? _userData!['name'] : 'Nama User',
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-                const ListTile(
-                  leading: Icon(Icons.security),
-                  title: Text('Keamanan'),
-                  trailing: Icon(Icons.chevron_right),
+                Text(
+                  _userData != null ? _userData!['email'] : 'Email User',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                ),
+                const SizedBox(height: 30),
+                const Divider(),
+                
+                ListTile(
+                  leading: const Icon(
+                    Icons.bookmark_outline,
+                    color: Color(0xFF9C27B0),
+                  ),
+                  title: const Text('Bookmark Tersimpan'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const BookmarksPage(),
+                      ),
+                    );
+                  },
                 ),
                 const Divider(),
                 ListTile(
                   leading: const Icon(Icons.logout, color: Colors.red),
-                  title: const Text('Keluar Akun', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                  title: const Text(
+                    'Keluar Akun',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   onTap: () => _showLogoutDialog(),
                 ),
               ],
@@ -477,9 +672,26 @@ class _HomePageState extends State<HomePage> {
         children: [
           Row(
             children: [
-              const CircleAvatar(
+              CircleAvatar(
                 radius: 25,
-                backgroundImage: AssetImage('images/background.png'),
+                backgroundColor: Colors.grey.shade200,
+                backgroundImage:
+                    _userData != null &&
+                            _userData!['profile_photo_url'] != null &&
+                            _userData!['profile_photo_url'].toString().isNotEmpty
+                        ? NetworkImage(
+                            '${_userData!['profile_photo_url']}?v=${DateTime.now().millisecondsSinceEpoch}',
+                          )
+                        : null,
+                child: (_userData == null ||
+                        _userData!['profile_photo_url'] == null ||
+                        _userData!['profile_photo_url'].toString().isEmpty)
+                    ? Icon(
+                        Icons.person_rounded,
+                        size: 30,
+                        color: Colors.grey.shade400,
+                      )
+                    : null,
               ),
               const SizedBox(width: 15),
               Column(
@@ -491,15 +703,55 @@ class _HomePageState extends State<HomePage> {
                   ),
                   Text(
                     _userData != null ? _userData!['name'] : 'Memuat...',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                 ],
               ),
             ],
           ),
-          IconButton(
-            icon: const Icon(Icons.notifications_none_outlined, size: 28),
-            onPressed: () {},
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_none_outlined, size: 28),
+                onPressed: () {
+                  // Langsung hilangkan badge saat ikon ditekan
+                  setState(() => _unreadNotificationsCount = 0);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const NotificationPage()),
+                  );
+                },
+              ),
+              if (_unreadNotificationsCount > 0)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: const BoxDecoration(
+                      color: Colors.red,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints: const BoxConstraints(
+                      minWidth: 16,
+                      minHeight: 16,
+                    ),
+                    child: Text(
+                      '${_unreadNotificationsCount > 9 ? '9+' : _unreadNotificationsCount}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -508,10 +760,16 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildCarousel() {
     if (_isLoadingComics) {
-      return const SizedBox(height: 250, child: Center(child: CircularProgressIndicator()));
+      return const SizedBox(
+        height: 250,
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
     if (_apiComics.isEmpty) {
-      return const SizedBox(height: 250, child: Center(child: Text('Tidak ada komik')));
+      return const SizedBox(
+        height: 250,
+        child: Center(child: Text('Tidak ada komik')),
+      );
     }
 
     // Ambil 3 komik pertama dari API
@@ -539,14 +797,11 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildCarouselItem(
-    int index,
-    dynamic comic,
-  ) {
+  Widget _buildCarouselItem(int index, dynamic comic) {
     final String title = comic['title'] ?? 'Unknown';
     final String category = comic['author'] ?? 'Unknown';
     final String imagePath = comic['cover_url'] ?? 'images/background.png';
-    const String likes = '1.5M';
+    final String avgRating = _formatRating(comic['ratings_avg_rating']);
 
     return GestureDetector(
       onTap: () => _openComicDetail(comic),
@@ -565,17 +820,46 @@ class _HomePageState extends State<HomePage> {
             child: SizedBox(height: 250 * value, child: child),
           );
         },
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 5),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(15),
-            image: DecorationImage(
-              image: imagePath.startsWith('http') 
-                  ? NetworkImage(imagePath) 
-                  : AssetImage(imagePath) as ImageProvider,
-              fit: BoxFit.cover,
+        child: Stack(
+          children: [
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 5),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(15),
+                image: DecorationImage(
+                  image: imagePath.startsWith('http')
+                      ? NetworkImage(imagePath)
+                      : AssetImage(imagePath) as ImageProvider,
+                  fit: BoxFit.cover,
+                ),
+              ),
             ),
-          ),
+            Positioned(
+              bottom: 10,
+              right: 15,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.6),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.star, color: Colors.amber, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      avgRating,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -647,26 +931,89 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildVerticalList() {
     if (_isLoadingComics) {
-      return const Padding(padding: EdgeInsets.all(20), child: Center(child: CircularProgressIndicator()));
+      return const Padding(
+        padding: EdgeInsets.all(20),
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
     if (_apiComics.isEmpty) {
-      return const Padding(padding: EdgeInsets.all(20), child: Center(child: Text('Tidak ada komik')));
+      return const Padding(
+        padding: EdgeInsets.all(20),
+        child: Center(child: Text('Tidak ada komik')),
+      );
+    }
+
+    // Sort berdasarkan kategori aktif
+    List<dynamic> sortedComics = List.from(_apiComics);
+    final now = DateTime.now();
+
+    if (_selectedCategoryIndex == 0) {
+      // Populer: rating tertinggi dulu
+      sortedComics.sort((a, b) {
+        final ratingA = double.tryParse(a['ratings_avg_rating']?.toString() ?? '0') ?? 0;
+        final ratingB = double.tryParse(b['ratings_avg_rating']?.toString() ?? '0') ?? 0;
+        return ratingB.compareTo(ratingA);
+      });
+    } else if (_selectedCategoryIndex == 1) {
+      // Baru: created_at terbaru dulu
+      sortedComics.sort((a, b) {
+        final dateA = DateTime.tryParse(a['created_at'] ?? '') ?? DateTime(2000);
+        final dateB = DateTime.tryParse(b['created_at'] ?? '') ?? DateTime(2000);
+        return dateB.compareTo(dateA);
+      });
+    } else if (_selectedCategoryIndex == 2) {
+      // Harian: komik yang dibuat/diperbarui dalam 7 hari terakhir, rating tertinggi
+      sortedComics = sortedComics.where((comic) {
+        final date = DateTime.tryParse(comic['created_at'] ?? '');
+        if (date == null) return false;
+        return now.difference(date).inDays <= 7;
+      }).toList();
+
+      if (sortedComics.isEmpty) {
+        // Fallback: kalau tidak ada yang baru, tampilkan semua, sortir rating
+        sortedComics = List.from(_apiComics);
+        sortedComics.sort((a, b) {
+          final ratingA = double.tryParse(a['ratings_avg_rating']?.toString() ?? '0') ?? 0;
+          final ratingB = double.tryParse(b['ratings_avg_rating']?.toString() ?? '0') ?? 0;
+          return ratingB.compareTo(ratingA);
+        });
+      } else {
+        sortedComics.sort((a, b) {
+          final ratingA = double.tryParse(a['ratings_avg_rating']?.toString() ?? '0') ?? 0;
+          final ratingB = double.tryParse(b['ratings_avg_rating']?.toString() ?? '0') ?? 0;
+          return ratingB.compareTo(ratingA);
+        });
+      }
+    }
+
+    if (sortedComics.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(20),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.auto_awesome, size: 48, color: Colors.grey.shade300),
+              const SizedBox(height: 12),
+              Text(
+                'Belum ada komik dalam kategori ini.',
+                style: TextStyle(color: Colors.grey.shade500),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     return Column(
-      children: _apiComics.map((data) {
+      children: sortedComics.map((data) {
         return _buildComicItem(data);
       }).toList(),
     );
   }
 
+
   Widget _buildComicItem(dynamic comic) {
     final String title = comic['title'] ?? 'Unknown';
-    final String category = comic['author'] ?? 'Unknown';
-    final String imagePath = comic['cover_url'] ?? 'images/background.png';
-    const String likes = '99K';
-
-    // Membaca kata kunci langsung dari controller untuk mencegah error undefined karena state hot reload
     final keyword = _searchController.text.toLowerCase();
 
     // Hanya disaring apabila sedang berada pada menu pencarian
@@ -676,78 +1023,9 @@ class _HomePageState extends State<HomePage> {
       return const SizedBox.shrink();
     }
 
-    return GestureDetector(
+    return _ComicListItem(
+      comic: comic,
       onTap: () => _openComicDetail(comic),
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 20),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: imagePath.startsWith('http')
-                  ? Image.network(
-                      imagePath,
-                      width: 90,
-                      height: 120,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) =>
-                          Container(width: 90, height: 120, color: Colors.grey),
-                    )
-                  : Image.asset(
-                      imagePath,
-                      width: 90,
-                      height: 120,
-                      fit: BoxFit.cover,
-                    ),
-            ),
-            const SizedBox(width: 15),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    category,
-                    style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.favorite,
-                        color: Color(0xFF9C27B0),
-                        size: 18,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        likes,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.bookmark_border, size: 28),
-              onPressed: () {},
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -812,10 +1090,7 @@ class _HomePageState extends State<HomePage> {
 class ComicDetailPage extends StatefulWidget {
   final int comicId;
 
-  const ComicDetailPage({
-    super.key,
-    required this.comicId,
-  });
+  const ComicDetailPage({super.key, required this.comicId});
 
   @override
   State<ComicDetailPage> createState() => _ComicDetailPageState();
@@ -824,11 +1099,143 @@ class ComicDetailPage extends StatefulWidget {
 class _ComicDetailPageState extends State<ComicDetailPage> {
   dynamic _comicData;
   bool _isLoading = true;
+  int _userRating = 0; // 0 means not rated yet
+  bool _isBookmarked = false;
+  bool _isTogglingBookmark = false;
 
   @override
   void initState() {
     super.initState();
     _fetchComicDetail();
+    _fetchUserRating();
+    _fetchBookmarkStatus();
+  }
+
+  Future<void> _fetchUserRating() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      if (token == null) return;
+
+      var url = Uri.parse('${AppConfig.baseUrl}/ratings/${widget.comicId}');
+      var response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        var jsonResponse = jsonDecode(response.body);
+        setState(() {
+          _userRating = jsonResponse['rating'];
+        });
+      }
+    } catch (e) {
+      print('Error fetching user rating: $e');
+    }
+  }
+
+  Future<void> _submitRating(int rating) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      if (token == null) return;
+
+      var url = Uri.parse('${AppConfig.baseUrl}/ratings');
+      var response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+        body: {
+          'comic_id': widget.comicId.toString(),
+          'rating': rating.toString(),
+        },
+      );
+
+      if (response.statusCode == 200) {
+        var jsonResponse = jsonDecode(response.body);
+        setState(() {
+          _userRating = rating;
+          // Update average rating in _comicData
+          if (_comicData != null) {
+            _comicData['ratings_avg_rating'] = jsonResponse['average_rating'];
+          }
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Terima kasih atas rating Anda!')),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error submitting rating: $e');
+    }
+  }
+
+  Future<void> _fetchBookmarkStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      if (token == null) return;
+
+      var url = Uri.parse('${AppConfig.baseUrl}/bookmarks/check/${widget.comicId}');
+      var response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200 && mounted) {
+        var jsonResponse = jsonDecode(response.body);
+        setState(() {
+          _isBookmarked = jsonResponse['is_bookmarked'] == true;
+        });
+      }
+    } catch (e) {
+      print('Error fetching bookmark status: $e');
+    }
+  }
+
+  Future<void> _toggleBookmark() async {
+    if (_isTogglingBookmark) return;
+    setState(() => _isTogglingBookmark = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      if (token == null) return;
+
+      var url = Uri.parse('${AppConfig.baseUrl}/bookmarks/toggle/${widget.comicId}');
+      var response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200 && mounted) {
+        var jsonResponse = jsonDecode(response.body);
+        setState(() {
+          _isBookmarked = jsonResponse['is_bookmarked'] == true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_isBookmarked ? 'Berhasil ditambahkan ke bookmark!' : 'Bookmark dihapus.'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error toggling bookmark: $e');
+    } finally {
+      if (mounted) setState(() => _isTogglingBookmark = false);
+    }
   }
 
   Future<void> _fetchComicDetail() async {
@@ -863,7 +1270,8 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
     final String title = _comicData['title'] ?? 'Unknown';
     final String imagePath = _comicData['cover_url'] ?? 'images/background.png';
     final String category = _comicData['author'] ?? 'Unknown';
-    final String displaySynopsis = _comicData['synopsis'] ?? 'Tidak ada sinopsis.';
+    final String displaySynopsis =
+        _comicData['synopsis'] ?? 'Tidak ada sinopsis.';
     final List<dynamic> displayEpisodes = _comicData['episodes'] ?? [];
 
     return Scaffold(
@@ -884,7 +1292,8 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
                           imagePath,
                           fit: BoxFit.cover,
                           alignment: Alignment.topCenter,
-                          errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey),
+                          errorBuilder: (context, error, stackTrace) =>
+                              Container(color: Colors.grey),
                         )
                       : Image.asset(
                           imagePath,
@@ -963,7 +1372,7 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
                         ),
                       ),
                       const SizedBox(height: 10),
-                      const Row(
+                      Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
@@ -973,24 +1382,28 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
                           ),
                           SizedBox(width: 5),
                           Text(
-                            '631M',
-                            style: TextStyle(
+                            (_comicData['histories_count'] ?? 0).toString(),
+                            style: const TextStyle(
                               color: Color(0xFF9C27B0),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                           SizedBox(width: 15),
-                          Icon(
-                            Icons.person_outline,
-                            color: Color(0xFF9C27B0),
-                            size: 18,
-                          ),
+                          Icon(Icons.star, color: Color(0xFF9C27B0), size: 18),
                           SizedBox(width: 5),
                           Text(
-                            '2M',
-                            style: TextStyle(
+                            _formatRating(_comicData['ratings_avg_rating']),
+                            style: const TextStyle(
                               color: Color(0xFF9C27B0),
                               fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          SizedBox(width: 15),
+                          Text(
+                            '(${_comicData['ratings_count'] ?? 0} Rating)',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12,
                             ),
                           ),
                         ],
@@ -1005,11 +1418,88 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
             // Layout Tombol Aksi List, Rate, Komen, Download
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                children: [
+                  const Text(
+                    'Beri Rating Komik Ini:',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: List.generate(5, (index) {
+                      return IconButton(
+                        icon: Icon(
+                          index < _userRating ? Icons.star : Icons.star_border,
+                          color: Colors.amber,
+                          size: 35,
+                        ),
+                        onPressed: () => _submitRating(index + 1),
+                      );
+                    }),
+                  ),
+                  if (_userRating > 0)
+                    const Text(
+                      'Anda sudah memberi rating',
+                      style: TextStyle(color: Colors.green, fontSize: 12),
+                    ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Layout Tombol Aksi List, Rate, Komen, Download
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _buildDetailActionButton(Icons.bookmark_border, 'List'),
-                  _buildDetailActionButton(Icons.star_border, 'Rate'),
+                  GestureDetector(
+                    onTap: _toggleBookmark,
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(15),
+                          decoration: BoxDecoration(
+                            color: _isBookmarked
+                                ? const Color(0xFF9C27B0)
+                                : Colors.grey.shade300,
+                            shape: BoxShape.circle,
+                          ),
+                          child: _isTogglingBookmark
+                              ? const SizedBox(
+                                  width: 28,
+                                  height: 28,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.5,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Icon(
+                                  _isBookmarked
+                                      ? Icons.bookmark
+                                      : Icons.bookmark_border,
+                                  color: _isBookmarked
+                                      ? Colors.white
+                                      : Colors.grey.shade700,
+                                  size: 28,
+                                ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _isBookmarked ? 'Tersimpan' : 'Simpan',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: _isBookmarked
+                                ? const Color(0xFF9C27B0)
+                                : Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   _buildDetailActionButton(Icons.chat_bubble_outline, 'Komen'),
                   _buildDetailActionButton(Icons.download_outlined, 'Download'),
                 ],
@@ -1058,11 +1548,12 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
                 title,
                 ep['title'] ?? 'Chapter',
                 ep['created_at']?.split('T')[0] ?? '',
-                '3.1K',
                 imagePath,
                 ep['content'] ?? '',
+                ep['id'],
               ),
             ),
+
             const SizedBox(height: 40), // Padding pernapasan bawah
           ],
         ),
@@ -1095,17 +1586,22 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
     String comicTitle,
     String epTitle,
     String date,
-    String likes,
     String imagePath,
     String content,
+    int episodeId,
   ) {
+
     return GestureDetector(
       onTap: () {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) =>
-                ReadingPage(title: comicTitle, epTitle: epTitle, content: content),
+            builder: (context) => ReadingPage(
+              title: comicTitle,
+              epTitle: epTitle,
+              episodeId: episodeId,
+            ),
+
           ),
         );
       },
@@ -1157,9 +1653,12 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
                 ],
               ),
             ),
-            const Icon(Icons.favorite, color: Color(0xFF9C27B0), size: 18),
+            const Icon(Icons.star, color: Color(0xFF9C27B0), size: 18),
             const SizedBox(width: 5),
-            Text(likes, style: TextStyle(color: Colors.grey.shade700)),
+            Text(
+              _formatRating(_comicData?['ratings_avg_rating']),
+              style: TextStyle(color: Colors.grey.shade700),
+            ),
             const SizedBox(width: 15),
           ],
         ),
@@ -1168,214 +1667,298 @@ class _ComicDetailPageState extends State<ComicDetailPage> {
   }
 }
 
-final List<Map<String, dynamic>> comicsData = [
-  {
-    'title': 'The Stellar Swordmaster',
-    'category': 'Action',
-    'likes': '2M',
-    'imagePath': 'images/worlds_strongest_troll.png',
-    'synopsis':
-        'Sinopsis The Stellar Swordmaster (silakan diubah). Kisah seorang ahli pedang bintang yang turun ke dunia untuk mengembalikan kedamaian.',
-    'episodes': [
-      {
-        'epTitle': 'Episode 2',
-        'date': '14 Okt 2022',
-        'likes': '3.100',
-        'imagePath': 'images/worlds_strongest_troll.png',
-        'content':
-            'Isi untuk The Stellar Swordmaster - Episode 2. Konflik memanas saat karakter utama ditantang rivalnya.',
-      },
-      {
-        'epTitle': 'Episode 1',
-        'date': '7 Okt 2022',
-        'likes': '2.364',
-        'imagePath': 'images/worlds_strongest_troll.png',
-        'content':
-            'Isi untuk The Stellar Swordmaster - Episode 1. Kisah bermula dari sebuah turnamen pertarungan bawah tanah.',
-      },
-    ],
-  },
-  {
-    'title': 'My Husband Was Stolen Twice',
-    'category': 'Romance',
-    'likes': '49.749',
-    'imagePath': 'images/from_a_knight_to_a_lady.png',
-    'synopsis':
-        'Sinopsis My Husband Was Stolen Twice (silakan diubah). Intrik politik istana dan pengkhianatan berlapis oleh sang kekasih.',
-    'episodes': [
-      {
-        'epTitle': 'Episode 2',
-        'date': '12 Sep 2022',
-        'likes': '1.500',
-        'imagePath': 'images/from_a_knight_to_a_lady.png',
-        'content':
-            'Isi untuk My Husband Was Stolen Twice - Episode 2. Rencana pembalasan dendam mulai disiapkan perlahan-lahan.',
-      },
-      {
-        'epTitle': 'Episode 1',
-        'date': '5 Sep 2022',
-        'likes': '1.000',
-        'imagePath': 'images/from_a_knight_to_a_lady.png',
-        'content':
-            'Isi untuk My Husband Was Stolen Twice - Episode 1. Di malam yang nahas, kebenaran tentang sang suami akhirnya terungkap.',
-      },
-    ],
-  },
-  {
-    'title': 'The End Has Come',
-    'category': 'Thriller',
-    'likes': '65.549',
-    'imagePath': 'images/winter_breeze.png',
-    'synopsis':
-        'Sinopsis The End Has Come (silakan diubah). Ketika dunia dilanda wabah monster dari dimensi lain, satu pahlawan tersisa.',
-    'episodes': [
-      {
-        'epTitle': 'Episode 2',
-        'date': '20 Agu 2022',
-        'likes': '5.000',
-        'imagePath': 'images/winter_breeze.png',
-        'content':
-            'Isi untuk The End Has Come - Episode 2. Persediaan mulai menipis dan zona aman dikepung oleh predator haus darah.',
-      },
-      {
-        'epTitle': 'Episode 1',
-        'date': '10 Agu 2022',
-        'likes': '4.500',
-        'imagePath': 'images/winter_breeze.png',
-        'content':
-            'Isi untuk The End Has Come - Episode 1. Menyadari kejanggalan dalam siaran televisi tepat sebelum badai merah menutupi langit.',
-      },
-    ],
-  },
-  {
-    'title': 'Duchess In Ruins',
-    'category': 'Kerajaan',
-    'likes': '12.345',
-    'imagePath': 'images/background.png',
-    'synopsis':
-        'Sinopsis Duchess In Ruins (silakan diubah). Kisah seorang duchess agung yang membalikkan nasib kerajaannya yang tengah hancur.',
-    'episodes': [
-      {
-        'epTitle': 'Episode 2',
-        'date': '3 Nov 2022',
-        'likes': '2.100',
-        'imagePath': 'images/background.png',
-        'content':
-            'Isi untuk Duchess In Ruins - Episode 2. Strategi mulai dijalankan untuk menjatuhkan para pengkhianat istana.',
-      },
-      {
-        'epTitle': 'Episode 1',
-        'date': '26 Okt 2022',
-        'likes': '1.300',
-        'imagePath': 'images/background.png',
-        'content':
-            'Isi untuk Duchess In Ruins - Episode 1. Sebuah awal keruntuhan yang memaksa sang pahlawan bangkit kembali.',
-      },
-    ],
-  },
-  {
-    'title': 'Winter Castle',
-    'category': 'Fantasy',
-    'likes': '1M',
-    'imagePath': 'images/background.png',
-    'synopsis':
-        'Sinopsis Winter Castle (silakan diubah). Legenda kutukan abadi dan misteri yang menyelimuti istana es di utara.',
-    'episodes': [
-      {
-        'epTitle': 'Episode 2',
-        'date': '29 Des 2022',
-        'likes': '3.200',
-        'imagePath': 'images/background.png',
-        'content':
-            'Isi untuk Winter Castle - Episode 2. Rahasia gelap di lorong bawah tanah istana mulai terkuak.',
-      },
-      {
-        'epTitle': 'Episode 1',
-        'date': '22 Des 2022',
-        'likes': '2.000',
-        'imagePath': 'images/background.png',
-        'content':
-            'Isi untuk Winter Castle - Episode 1. Badai salju pertama membawa surat misterius dari masa lalu.',
-      },
-    ],
-  },
-];
-
-// ============================================================================ //
-//  KOMPONEN HALAMAN BACA (READING PAGE)
-// ============================================================================ //
-
-class ReadingPage extends StatelessWidget {
+class ReadingPage extends StatefulWidget {
   final String title;
   final String epTitle;
-  final String content;
+  final int episodeId;
 
   const ReadingPage({
     super.key,
     required this.title,
     required this.epTitle,
-    required this.content,
+    required this.episodeId,
   });
+
+  @override
+  State<ReadingPage> createState() => _ReadingPageState();
+}
+
+class _ReadingPageState extends State<ReadingPage> {
+  List<dynamic> _panels = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPanels();
+  }
+
+  Future<void> _fetchPanels() async {
+    try {
+      var url = Uri.parse('${AppConfig.baseUrl}/episodes/${widget.episodeId}');
+      var response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        var jsonResponse = jsonDecode(response.body);
+        setState(() {
+          _panels = jsonResponse['data']['panels'] ?? [];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: Colors.white,
       appBar: AppBar(
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
         elevation: 1,
         title: Text(
-          '$title - $epTitle',
+          '${widget.title} - ${widget.epTitle}',
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(20.0),
-              child: Text(
-                content,
-                style: const TextStyle(
-                  fontSize: 15,
-                  height: 1.5,
-                  fontStyle: FontStyle.italic,
-                  color: Colors.black87,
-                ),
-                textAlign: TextAlign.center,
-              ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView.builder(
+              itemCount: _panels.length + 1,
+              itemBuilder: (context, index) {
+                if (index == _panels.length) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: Center(
+                      child: Text(
+                        'To be continued...',
+                        style: TextStyle(
+                          color: Colors.black54,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ),
+                  );
+                }
+
+                final panel = _panels[index];
+                final String imagePath = panel['image_path'];
+                final String imageUrl = imagePath.startsWith('http')
+                    ? imagePath
+                    : '${AppConfig.baseUrl}/images/$imagePath';
+
+                return Image.network(
+                  imageUrl,
+                  width: double.infinity,
+                  fit: BoxFit.fitWidth,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return Container(
+                      height: 300,
+                      color: Colors.grey.shade100,
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          value: loadingProgress.expectedTotalBytes != null
+                              ? loadingProgress.cumulativeBytesLoaded /
+                                  loadingProgress.expectedTotalBytes!
+                              : null,
+                        ),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    height: 200,
+                    color: Colors.grey.shade100,
+                    child: const Icon(Icons.broken_image, color: Colors.grey),
+                  ),
+                );
+              },
             ),
-            // Placeholder Panel Komik
-            _buildComicPanel('Panel 1', Colors.grey.shade300, 300),
-            _buildComicPanel('Panel 2', Colors.grey.shade400, 400),
-            _buildComicPanel('Panel 3', Colors.grey.shade300, 350),
-            const SizedBox(height: 40),
-            const Text(
-              'To be continued...',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            const SizedBox(height: 60),
-          ],
-        ),
-      ),
     );
   }
+}
 
-  Widget _buildComicPanel(String text, Color color, double height) {
-    return Container(
-      width: double.infinity,
-      height: height,
-      margin: const EdgeInsets.only(bottom: 10),
-      color: color,
-      child: Center(
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.grey.shade600,
+// ==== STATEFUL COMIC LIST ITEM (untuk bookmark mandiri per item) ====
+class _ComicListItem extends StatefulWidget {
+  final dynamic comic;
+  final VoidCallback onTap;
+
+  const _ComicListItem({required this.comic, required this.onTap});
+
+  @override
+  State<_ComicListItem> createState() => _ComicListItemState();
+}
+
+class _ComicListItemState extends State<_ComicListItem> {
+  bool _isBookmarked = false;
+  bool _isToggling = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBookmarkStatus();
+  }
+
+  Future<void> _checkBookmarkStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      if (token == null) return;
+
+      final comicId = widget.comic['id'];
+      var url = Uri.parse('${AppConfig.baseUrl}/bookmarks/check/$comicId');
+      var response = await http.get(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200 && mounted) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _isBookmarked = data['is_bookmarked'] == true;
+        });
+      }
+    } catch (e) {
+      print('Error checking bookmark: $e');
+    }
+  }
+
+  Future<void> _toggleBookmark() async {
+    if (_isToggling) return;
+    setState(() => _isToggling = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+      if (token == null) return;
+
+      final comicId = widget.comic['id'];
+      var url = Uri.parse('${AppConfig.baseUrl}/bookmarks/toggle/$comicId');
+      var response = await http.post(
+        url,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Accept': 'application/json',
+        },
+      );
+
+      if (response.statusCode == 200 && mounted) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _isBookmarked = data['is_bookmarked'] == true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_isBookmarked
+                ? 'Ditambahkan ke bookmark!'
+                : 'Bookmark dihapus.'),
+            duration: const Duration(seconds: 2),
           ),
+        );
+      }
+    } catch (e) {
+      print('Error toggling bookmark: $e');
+    } finally {
+      if (mounted) setState(() => _isToggling = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String title = widget.comic['title'] ?? 'Unknown';
+    final String category = widget.comic['author'] ?? 'Unknown';
+    final String imagePath = widget.comic['cover_url'] ?? 'images/background.png';
+    final String avgRating = _formatRating(widget.comic['ratings_avg_rating']);
+
+    return GestureDetector(
+      onTap: widget.onTap,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 20),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: imagePath.startsWith('http')
+                  ? Image.network(
+                      imagePath,
+                      width: 90,
+                      height: 120,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) =>
+                          Container(width: 90, height: 120, color: Colors.grey.shade200),
+                    )
+                  : Image.asset(
+                      imagePath,
+                      width: 90,
+                      height: 120,
+                      fit: BoxFit.cover,
+                    ),
+            ),
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    category,
+                    style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      const Icon(Icons.star, color: Color(0xFF9C27B0), size: 18),
+                      const SizedBox(width: 5),
+                      Text(
+                        avgRating,
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            // Bookmark button
+            _isToggling
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Color(0xFF9C27B0),
+                      ),
+                    ),
+                  )
+                : IconButton(
+                    icon: Icon(
+                      _isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                      size: 28,
+                      color: _isBookmarked
+                          ? const Color(0xFF9C27B0)
+                          : Colors.grey.shade600,
+                    ),
+                    onPressed: _toggleBookmark,
+                  ),
+          ],
         ),
       ),
     );

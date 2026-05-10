@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:ui';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'config.dart';
 import 'acc.dart';
 import 'home.dart';
+
 class Login extends StatefulWidget {
   const Login({super.key});
 
@@ -29,238 +31,224 @@ class _LoginState extends State<Login> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: BoxDecoration(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
           image: DecorationImage(
             image: AssetImage('assets/images/accbg.png'),
             fit: BoxFit.cover,
           ),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              margin: EdgeInsets.only(top: 45),
-              width: 150,
-              height: 150,
-              decoration: BoxDecoration(
-                image: DecorationImage(
-                  image: AssetImage('assets/images/logo.png'),
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ),
-            Column(
-              children: [
-                Text(
-                  'Selamat Datang',
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  'Lumic - Cerita Hebat Dimulai Di Sini',
-                  style: TextStyle(fontSize: 12, color: Colors.black38),
-                ),
-              ],
-            ),
-            Container(
-              height: 250,
-              margin: EdgeInsets.only(top: 40, left: 55, right: 55, bottom: 10),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      children: [
-                        Row(children: [Text('Masuk Ke Akun')]),
-                        SizedBox(height: 5),
-                        TextFormField(
-                          controller: _emailController,
-                          decoration: InputDecoration(
-                            labelText: 'Email',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              vertical: 10,
-                              horizontal: 12,
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Email tidak boleh kosong';
-                            }
-                            return null;
-                          },
-                        ),
-                        SizedBox(height: 10),
-                        TextFormField(
-                          controller: _passwordController,
-                          obscureText: true,
-                          decoration: InputDecoration(
-                            labelText: 'Password',
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              vertical: 10,
-                              horizontal: 12,
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Password tidak boleh kosong';
-                            }
-                            if (value.length < 6) {
-                              return 'Password minimal 6 karakter';
-                            }
-                            return null;
-                          },
-                        ),
-                      ],
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            minimumSize: Size(50, 45),
-                          ),
-                          onPressed: _isLoading ? null : () async {
-                            if (_formKey.currentState!.validate()) {
-                              setState(() {
-                                _isLoading = true;
-                              });
-
-                              try {
-                                var url = Uri.parse('${AppConfig.baseUrl}/login');
-                                var response = await http.post(
-                                  url,
-                                  body: {
-                                    'email': _emailController.text,
-                                    'password': _passwordController.text,
-                                  },
-                                );
-
-                                setState(() {
-                                  _isLoading = false;
-                                });
-
-                                if (response.statusCode == 200) {
-                                  var data = jsonDecode(response.body);
-                                  SharedPreferences prefs = await SharedPreferences.getInstance();
-                                  await prefs.setString('auth_token', data['access_token']);
-
-                                  if (mounted) {
-                                    Navigator.pushReplacement(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => const HomePage()),
-                                    );
-                                  }
-                                } else {
-                                  var errorData = jsonDecode(response.body);
-                                  var errorMsg = errorData['message'] ?? 'Login gagal';
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(errorMsg)),
-                                    );
-                                  }
-                                }
-                              } catch (e) {
-                                setState(() {
-                                  _isLoading = false;
-                                });
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Terjadi kesalahan jaringan: $e')),
-                                  );
-                                }
-                              }
-                            }
-                          },
-                          child: _isLoading 
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Text('Masuk'),
-                        ),
-                        SizedBox(width: 60),
-                        TextButton(
-                          style: TextButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            minimumSize: Size(100, 45),
-                          ),
-                          onPressed: () {
-                            Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(builder: (context) => Acc()),
-                            );
-                          },
-                          child: Text('Batal'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 55),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 35),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Expanded(
-                        child: Divider(thickness: 1, color: Colors.black38),
+                  Image.asset('assets/images/logo.png', width: 80, height: 80, fit: BoxFit.contain),
+                  const SizedBox(height: 15),
+                  const Text(
+                    'LUMIC',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF333333),
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 40),
+                  
+                  Container(
+                    padding: const EdgeInsets.all(25),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 20,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Masuk',
+                            style: TextStyle(
+                              color: Color(0xFF333333),
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 25),
+                          _buildTextField(
+                            controller: _emailController,
+                            label: 'Email',
+                            icon: Icons.email_outlined,
+                            validator: (v) => (v == null || v.isEmpty) ? 'Email wajib diisi' : null,
+                          ),
+                          const SizedBox(height: 15),
+                          _buildTextField(
+                            controller: _passwordController,
+                            label: 'Password',
+                            icon: Icons.lock_outline,
+                            obscure: true,
+                            validator: (v) => (v == null || v.length < 6) ? 'Password minimal 6 karakter' : null,
+                          ),
+                          const SizedBox(height: 25),
+                          
+                          SizedBox(
+                            width: double.infinity,
+                            height: 48,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF9C27B0),
+                                foregroundColor: Colors.white,
+                                elevation: 2,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: _isLoading ? null : _handleLogin,
+                              child: _isLoading
+                                  ? const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Text(
+                                      'MASUK',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 1.2,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        ],
                       ),
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 10),
-                        child: Text(
-                          'atau',
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 30),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('Belum punya akun? ', style: TextStyle(color: Color(0xFF555555))),
+                      GestureDetector(
+                        onTap: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (context) => const Acc()),
+                          );
+                        },
+                        child: const Text(
+                          'Daftar Sekarang',
                           style: TextStyle(
+                            color: Color(0xFF9C27B0),
                             fontWeight: FontWeight.bold,
-                            color: Colors.black38,
                           ),
                         ),
-                      ),
-                      Expanded(
-                        child: Divider(thickness: 1, color: Colors.black38),
                       ),
                     ],
-                  ),
-                  SizedBox(height: 10),
-                  Text(
-                    'Belum Punya Akun?',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 10),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(builder: (context) => Acc()),
-                      );
-                    },
-                    style: TextButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      minimumSize: Size(280, 45),
-                    ),
-                    child: Text(
-                      'Daftar',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
                   ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    bool obscure = false,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      obscureText: obscure,
+      style: const TextStyle(color: Color(0xFF333333)),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.black54),
+        prefixIcon: Icon(icon, color: Colors.black45, size: 20),
+        filled: true,
+        fillColor: Colors.grey.shade100,
+        contentPadding: const EdgeInsets.symmetric(vertical: 15, horizontal: 20),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF9C27B0), width: 1.5),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.redAccent),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Colors.redAccent),
+        ),
+      ),
+      validator: validator,
+    );
+  }
+
+  void _showSnackBar(String message, {bool isError = true}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.redAccent : Colors.green,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Future<void> _handleLogin() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse('${AppConfig.baseUrl}/login'),
+        body: {
+          'email': _emailController.text,
+          'password': _passwordController.text,
+        },
+      ).timeout(const Duration(seconds: 15));
+
+      setState(() => _isLoading = false);
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setString('auth_token', data['access_token']);
+        if (mounted) {
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const HomePage()));
+        }
+      } else {
+        _showSnackBar(data['message'] ?? 'Email atau password salah.');
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      _showSnackBar('Gagal terhubung ke server. Silakan cek koneksi internet.');
+    }
   }
 }

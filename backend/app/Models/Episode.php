@@ -13,4 +13,9 @@ class Episode extends Model
     {
         return $this->belongsTo(Comic::class);
     }
+
+    public function panels()
+    {
+        return $this->hasMany(Panel::class)->orderBy('sort_order');
+    }
 }

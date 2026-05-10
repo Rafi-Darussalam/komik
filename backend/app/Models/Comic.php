@@ -12,7 +12,17 @@ class Comic extends Model
         'author',
         'synopsis',
         'cover_url',
+        'status',
     ];
+
+    public function getCoverUrlAttribute($value)
+    {
+        if (!$value) return null;
+        if (filter_var($value, FILTER_VALIDATE_URL)) {
+            return $value;
+        }
+        return url('/api/images/' . $value);
+    }
 
     public function histories(): HasMany
     {
@@ -22,5 +32,15 @@ class Comic extends Model
     public function episodes(): HasMany
     {
         return $this->hasMany(Episode::class)->orderBy('chapter_number', 'desc');
+    }
+
+    public function ratings(): HasMany
+    {
+        return $this->hasMany(Rating::class);
+    }
+
+    public function bookmarks(): HasMany
+    {
+        return $this->hasMany(Bookmark::class);
     }
 }

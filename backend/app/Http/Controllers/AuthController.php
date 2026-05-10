@@ -2,9 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-
 use App\Models\User;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
@@ -16,12 +15,20 @@ class AuthController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8',
+            'profile_photo' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
         ]);
+
+        $photoPath = null;
+        if ($request->hasFile('profile_photo')) {
+            $photoPath = $request->file('profile_photo')->store('avatars', 'public');
+        }
 
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
+            'profile_photo' => $photoPath,
+            'role' => 'user',
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -43,9 +50,7 @@ class AuthController extends Controller
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
-            throw ValidationException::withMessages([
-                'email' => ['Kredensial yang diberikan salah.'],
-            ]);
+            return response()->json(['message' => 'Email atau password salah.'], 401);
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -63,6 +68,36 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Logged out successfully'
+        ]);
+    }
+
+    public function updateProfilePhoto(Request $request)
+    {
+        $request->validate([
+            'profile_photo' => 'required|image|mimes:jpg,jpeg,png|max:2048',
+        ]);
+
+        if (!$request->hasFile('profile_photo')) {
+            return response()->json(['message' => 'File tidak ditemukan'], 400);
+        }
+
+        $user = $request->user();
+
+        if ($user->profile_photo) {
+            \Illuminate\Support\Facades\Storage::disk('public')->delete($user->profile_photo);
+        }
+
+        $photoPath = $request->file('profile_photo')->store('avatars', 'public');
+
+        $user->profile_photo = $photoPath;
+        $user->save();
+
+        $user->refresh();
+
+        return response()->json([
+            'message' => 'Profile photo updated successfully',
+            'user' => $user,
+            'profile_photo_url' => $user->profile_photo_url,
         ]);
     }
 }

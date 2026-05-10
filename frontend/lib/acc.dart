@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'email.dart';
 import 'login.dart';
@@ -9,136 +10,108 @@ class Acc extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: BoxDecoration(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
           image: DecorationImage(
             image: AssetImage('assets/images/accbg.png'),
             fit: BoxFit.cover,
           ),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              margin: EdgeInsets.only(top: 45),
-              width: 150,
-              height: 150,
-              decoration: BoxDecoration(
-                image: DecorationImage(
-                  image: AssetImage('assets/images/logo.png'),
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ),
-            Column(
-              children: [
-                Text(
-                  'Selamat Datang',
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  'Lumic - Cerita Hebat Dimulai Di Sini',
-                  style: TextStyle(fontSize: 12, color: Colors.black38),
-                ),
-              ],
-            ),
-            Container(
-              height: 260,
-              margin: EdgeInsets.only(top: 40),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 40),
               child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pushReplacement(context,
-                        MaterialPageRoute(builder: (context) => Email()),
-                      );
-                    },
-                    style: TextButton.styleFrom(
-                      backgroundColor: Color(0xFF9112BC),
-                      minimumSize: Size(280, 45),
-                    ),
-                    child: Text(
-                      'Daftar Menggunakan Email',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  Image.asset('assets/images/logo.png', width: 100, height: 100, fit: BoxFit.contain),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'LUMIC',
+                    style: TextStyle(
+                      fontSize: 36,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF333333),
+                      letterSpacing: 4,
                     ),
                   ),
-                  SizedBox(height: 15),
-                  TextButton(
-                    onPressed: () {
-                        
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Explore Millions of Stories',
+                    style: TextStyle(
+                      color: Color(0xFF555555),
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 70),
+
+                  // Choice Buttons - Simpler Style
+                  _buildChoiceButton(
+                    context: context,
+                    text: 'DAFTAR SEKARANG',
+                    isPrimary: true,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const Email()),
+                      );
                     },
-                    style: TextButton.styleFrom(
-                      backgroundColor: Color(0xFFFFFFFF),
-                      minimumSize: Size(280, 45),
-                    ),
-                    child: Text(
-                      'Daftar Menggunakan Google',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  _buildChoiceButton(
+                    context: context,
+                    text: 'MASUK',
+                    isPrimary: false,
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const Login()),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 40),
+                  const Text(
+                    'Dengan melanjutkan, Anda setuju dengan Syarat & Ketentuan kami.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.black38, fontSize: 11),
                   ),
                 ],
               ),
             ),
-            Padding(
-              padding: EdgeInsetsGeometry.symmetric(horizontal: 55),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Expanded(
-                        child: Divider(thickness: 1, color: Colors.black38),
-                      ),
-                      Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 10),
-                        child: Text(
-                          'atau',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black38,
-                          ),
-                        ),
-                      ),
-                      Expanded(
-                        child: Divider(thickness: 1, color: Colors.black38),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 10),
-                  Text(
-                    'Sudah Punya Akun?',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  SizedBox(height: 10),
-                  TextButton(
-                    onPressed: () {
-                        Navigator.pushReplacement(context,
-                        MaterialPageRoute(builder: (context) => Login())
-                      );
-                    },
-                    style: TextButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      minimumSize: Size(280, 45),
-                    ),
-                    child: Text(
-                      'Masuk',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChoiceButton({
+    required BuildContext context,
+    required String text,
+    required bool isPrimary,
+    required VoidCallback onTap,
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: isPrimary ? const Color(0xFF9C27B0) : Colors.white,
+          foregroundColor: isPrimary ? Colors.white : const Color(0xFF333333),
+          elevation: 1,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: isPrimary ? BorderSide.none : const BorderSide(color: Colors.black12),
+          ),
+        ),
+        onPressed: onTap,
+        child: Text(
+          text,
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1,
+            fontSize: 14,
+          ),
         ),
       ),
     );

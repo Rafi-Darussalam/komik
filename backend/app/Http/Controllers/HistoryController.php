@@ -13,7 +13,14 @@ class HistoryController extends Controller
     {
         /** @var \App\Models\User $user */
         $user = Auth::user();
-        $histories = $user->histories()->with('comic')->get();
+        $histories = $user->histories()->with(['comic' => function($query) {
+            $query->withCount('episodes')
+                  ->withCount('ratings')
+                  ->withAvg('ratings', 'rating')
+                  ->withCount(['histories as histories_count' => function ($q) {
+                      $q->select(\Illuminate\Support\Facades\DB::raw('count(distinct(user_id))'));
+                  }]);
+        }])->get();
         return response()->json(['data' => $histories]);
     }
 
