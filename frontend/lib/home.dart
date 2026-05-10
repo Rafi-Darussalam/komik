@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -250,9 +249,6 @@ class _HomePageState extends State<HomePage> {
   // ==== LOGIKA NAVIGASI DETAIL KOMIK + HISTORY TRACKING ====
   void _openComicDetail(dynamic comic) async {
     final int comicId = comic['id'];
-    final String title = comic['title'];
-    final String category = comic['author'] ?? 'Unknown';
-    final String imagePath = comic['cover_url'] ?? 'images/background.png';
 
     // Record history to API
     try {
@@ -798,8 +794,6 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildCarouselItem(int index, dynamic comic) {
-    final String title = comic['title'] ?? 'Unknown';
-    final String category = comic['author'] ?? 'Unknown';
     final String imagePath = comic['cover_url'] ?? 'images/background.png';
     final String avgRating = _formatRating(comic['ratings_avg_rating']);
 

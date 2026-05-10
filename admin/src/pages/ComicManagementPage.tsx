@@ -79,7 +79,6 @@ import {
 import { Card } from "@/components/ui/card";
 import { adminApi } from "@/lib/api";
 import { toast } from "sonner";
-import { Checkbox } from "@/components/ui/checkbox";
 
 interface Panel {
   id: number;
