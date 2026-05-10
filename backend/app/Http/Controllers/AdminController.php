@@ -17,10 +17,15 @@ class AdminController extends Controller
         $totalAdmins = User::where('role', 'admin')->count();
         
         // Stats Comic Status
-        $comicStats = \DB::table('comics')
-            ->select('status', \DB::raw('count(*) as total'))
+        $comicStats = Comic::get(['status'])
             ->groupBy('status')
-            ->get();
+            ->map(function ($items, $status) {
+                return [
+                    'status' => $status,
+                    'total' => $items->count(),
+                ];
+            })
+            ->values();
 
         // Recent items
         $recentUsers = User::orderBy('created_at', 'desc')->take(5)->get();
