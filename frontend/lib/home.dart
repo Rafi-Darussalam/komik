@@ -1728,14 +1728,7 @@ class _ReadingPageState extends State<ReadingPage> {
                   return const Padding(
                     padding: EdgeInsets.symmetric(vertical: 40),
                     child: Center(
-                      child: Text(
-                        'To be continued...',
-                        style: TextStyle(
-                          color: Colors.black54,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
+                      
                     ),
                   );
                 }
